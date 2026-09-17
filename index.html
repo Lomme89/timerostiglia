@@ -5,6 +5,17 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0e1113">
 <title>Timer Ostiglia</title>
+<link rel="manifest" id="manifest" href="manifest.json">
+<link rel="apple-touch-icon" id="apple-icon" href="icons/apple-touch-icon.png">
+<script>
+  // Separate installable app for master (own name, icon, start URL).
+  if (location.hash === '#master') { document.getElementById('manifest').href = 'manifest-master.json'; document.getElementById('apple-icon').href = 'icons/master-192.png'; document.title = 'Timer Ostiglia · Master'; }
+  // No install prompt: suppress the browser's own mini-infobar.
+  addEventListener('beforeinstallprompt', e => e.preventDefault());
+</script>
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⏱️</text></svg>">
 <style>
   :root {
