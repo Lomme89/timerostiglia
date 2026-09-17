@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Timer Rostiglia</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⏱️</text></svg>">
+<style>
+  :root { --bg:#111; --fg:#eee; --mute:#888; --ok:#3c6; --warn:#fb3; --over:#f44; --card:#1d1d1d; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,sans-serif; background:var(--bg); color:var(--fg); padding:16px; text-align:center; }
+  #title { font-size:clamp(1.2rem,4vw,2rem); margin:.5em 0; min-height:1.3em; }
+  #clock { font-size:clamp(4rem,22vw,14rem); font-variant-numeric:tabular-nums; font-weight:700; line-height:1; color:var(--ok); }
+  #clock.warn { color:var(--warn); } #clock.over { color:var(--over); }
+  #status { color:var(--mute); margin:.5em 0 1em; }
+  #next { color:var(--mute); }
+  button { font-size:1.1rem; padding:.7em 1.1em; margin:.25em; border:0; border-radius:8px; background:#333; color:var(--fg); cursor:pointer; }
+  button.primary { background:var(--ok); color:#000; font-weight:700; }
+  #master { display:none; max-width:700px; margin:1.5em auto 0; }
+  ol { text-align:left; padding-left:1.5em; }
+  li { padding:.35em; border-radius:6px; display:flex; gap:.5em; align-items:center; }
+  li span { flex:1; } li.cur { background:var(--card); outline:1px solid var(--ok); } li.done { opacity:.45; }
+  li button { padding:.2em .6em; margin:0; font-size:1rem; }
+  textarea { width:100%; min-height:12em; background:var(--card); color:var(--fg); border:1px solid #333; border-radius:6px; padding:.5em; font:inherit; }
+  details { text-align:left; margin-top:1em; } input { width:100%; }
+</style>
+</head>
+<body>
+<div id="title">In attesa del master…</div>
+<div id="clock">--:--</div>
+<div id="status"></div>
+<div id="next"></div>
+
+<div id="master">
+  <div>
+    <button id="start" class="primary">▶ Avvia</button>
+    <button id="pause">⏸ Pausa</button>
+    <button id="stop">⏹ Termina parte</button>
+  </div>
+  <ol id="list"></ol>
+  <details>
+    <summary>Modifica programma</summary>
+    <p>Una parte per riga: <code>Titolo | minuti</code></p>
+    <textarea id="program"></textarea>
+    <button id="save">Salva programma</button>
+  </details>
+  <details>
+    <summary>Link per chi consulta</summary>
+    <input id="share" readonly onclick="this.select()">
+  </details>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<script>
+// ponytail: no backend — state travels as a retained MQTT message on a public broker.
+// Anyone who knows the room name could publish fake state; change ROOM (or use ?room=) if that matters.
+const ROOM = new URLSearchParams(location.search).get('room') || 'rostiglia-7f3k9q';
+const TOPIC = 'timerostiglia/' + ROOM + '/state';
+const IS_MASTER = location.hash === '#master';
+const DEFAULT_PROGRAM = `Cantico 161 e preghiera | Commenti introduttivi | 1
+Geova ricompensa chi è ubbidiente | 10
+Gemme spirituali | 10
+Lettura biblica | 4
+Iniziare una conversazione - Di casa in casa | 2
+Iniziare una conversazione - Di casa in casa | 2
+Coltivare l'interesse | 3
+Fare discepoli | 4
+L'autocontrollo ci aiuta a ubbidire | 6
+Risultati raggiunti dall'organizzazione di settembre | 9
+Studio biblico di congregazione | 30
+Commenti conclusivi | Cantico 28 e preghiera | 3`;
+
+const $ = id => document.getElementById(id);
+const fmt = ms => {
+  const s = Math.round(Math.abs(ms) / 1000);
+  return (ms < 0 ? '+' : '') + String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+};
+
+// Shared state shape: { parts:[{t,m}], i, phase:'ready'|'running'|'paused'|'done', remaining }
+let state = null, receivedAt = 0;
+
+function render() {
+  if (!state) return;
+  const p = state.parts[state.i], nxt = state.parts[state.i + 1];
+  let rem = state.remaining;
+  if (state.phase === 'running') rem -= Date.now() - receivedAt;
+  $('title').textContent = p ? `${state.i + 1}. ${p.t}` : 'Programma concluso';
+  $('clock').textContent = p ? fmt(state.phase === 'ready' ? p.m * 60000 : rem) : '--:--';
+  $('clock').className = state.phase === 'ready' ? '' : rem < 0 ? 'over' : rem <= 60000 ? 'warn' : '';
+  $('status').textContent = { ready: 'Pronto — in attesa di avvio', running: 'In corso', paused: 'In pausa', done: '' }[state.phase];
+  $('next').textContent = nxt ? `Poi: ${nxt.t} (${nxt.m} min)` : '';
+}
+
+const client = mqtt.connect('wss://broker.hivemq.com:8884/mqtt', { reconnectPeriod: 2000 });
+client.on('connect', () => client.subscribe(TOPIC));
+client.on('offline', () => $('status').textContent = 'Connessione persa, riconnessione…');
+if (!IS_MASTER) client.on('message', (_, msg) => {
+  try { state = JSON.parse(msg); receivedAt = Date.now(); render(); } catch {}
+});
+setInterval(render, 250);
+
+if (IS_MASTER) {
+  $('master').style.display = 'block';
+  $('share').value = location.origin + location.pathname + location.search;
+  let endAt = 0;
+  const parse = txt => txt.split('\n').map(l => l.split('|')).filter(a => a.length > 1)
+    .map(a => ({ t: a.slice(0, -1).join('|').trim(), m: +a.at(-1) || 0 }));
+
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem('tr-state')); } catch {}
+  state = saved || { parts: parse(DEFAULT_PROGRAM), i: 0, phase: 'ready', remaining: 0 };
+  if (state.phase === 'running') state.phase = 'paused'; // page reload: don't lose position
+  $('program').value = state.parts.map(p => `${p.t} | ${p.m}`).join('\n');
+
+  const live = () => state.phase === 'running' ? endAt - Date.now() : state.remaining;
+  const publish = (tick) => {
+    const snap = { ...state, remaining: live() };
+    client.publish(TOPIC, JSON.stringify(snap), { retain: true });
+    try { localStorage.setItem('tr-state', JSON.stringify(snap)); } catch {}
+    state.remaining = snap.remaining; receivedAt = Date.now();
+    if (state.phase === 'running') endAt = Date.now() + state.remaining;
+    render(); if (!tick) renderMaster(); // ponytail: skip list rebuild on ticks so clicks don't get eaten
+  };
+  client.on('connect', () => publish());
+  renderMaster(); render();
+  setInterval(() => state.phase === 'running' && publish(true), 1000);
+
+  $('start').onclick = () => {
+    if (state.phase === 'ready') state.remaining = state.parts[state.i].m * 60000;
+    if (state.phase !== 'ready' && state.phase !== 'paused') return;
+    endAt = Date.now() + state.remaining; state.phase = 'running'; publish();
+  };
+  $('pause').onclick = () => {
+    if (state.phase !== 'running') return;
+    state.remaining = live(); state.phase = 'paused'; publish();
+  };
+  $('stop').onclick = () => {
+    if (state.i >= state.parts.length) return;
+    state.i++; state.phase = state.i < state.parts.length ? 'ready' : 'done'; publish();
+  };
+  $('save').onclick = () => {
+    state = { parts: parse($('program').value), i: 0, phase: 'ready', remaining: 0 }; publish();
+  };
+  // Clicking a part jumps to it (ready, not started). ± only allowed before start.
+  window.adj = (k, d) => { state.parts[k].m = Math.max(0, state.parts[k].m + d); publish(); };
+  window.go = k => { state.i = k; state.phase = 'ready'; publish(); };
+
+  function renderMaster() {
+    $('start').textContent = state.phase === 'paused' ? '▶ Riprendi' : '▶ Avvia';
+    $('list').innerHTML = state.parts.map((p, k) => {
+      const editable = k > state.i || (k === state.i && state.phase === 'ready');
+      const cls = k === state.i ? 'cur' : k < state.i ? 'done' : '';
+      const esc = p.t.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+      return `<li class="${cls}"><span onclick="go(${k})" style="cursor:pointer">${esc}</span>
+        ${editable ? `<button onclick="adj(${k},-1)">−</button>` : ''}<b>${p.m}′</b>${editable ? `<button onclick="adj(${k},1)">+</button>` : ''}</li>`;
+    }).join('');
+  }
+}
+</script>
+</body>
+</html>
