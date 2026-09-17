@@ -3,52 +3,139 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0e1113">
 <title>Timer Rostiglia</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⏱️</text></svg>">
 <style>
-  :root { --bg:#111; --fg:#eee; --mute:#888; --ok:#3c6; --warn:#fb3; --over:#f44; --card:#1d1d1d; }
+  :root {
+    --bg:#0e1113; --surface:#171b1e; --surface-2:#20262a; --line:#2b3237;
+    --fg:#eef1f3; --mute:#8b959c;
+    --ok:#3ecf7a; --warn:#f5b53d; --over:#f0524a;
+    --radius:14px;
+  }
   * { box-sizing:border-box; }
-  body { margin:0; font-family:system-ui,sans-serif; background:var(--bg); color:var(--fg); padding:16px; text-align:center; }
-  #title { font-size:clamp(1.2rem,4vw,2rem); margin:.5em 0; min-height:1.3em; }
-  #clock { font-size:clamp(4rem,22vw,14rem); font-variant-numeric:tabular-nums; font-weight:700; line-height:1; color:var(--ok); }
-  #clock.warn { color:var(--warn); } #clock.over { color:var(--over); }
-  #status { color:var(--mute); margin:.5em 0 1em; }
-  #next { color:var(--mute); }
-  button { font-size:1.1rem; padding:.7em 1.1em; margin:.25em; border:0; border-radius:8px; background:#333; color:var(--fg); cursor:pointer; }
-  button.primary { background:var(--ok); color:#000; font-weight:700; }
-  #master { display:none; max-width:700px; margin:1.5em auto 0; }
-  ol { text-align:left; padding-left:1.5em; }
-  li { padding:.35em; border-radius:6px; display:flex; gap:.5em; align-items:center; }
-  li span { flex:1; } li.cur { background:var(--card); outline:1px solid var(--ok); } li.done { opacity:.45; }
-  li button { padding:.2em .6em; margin:0; font-size:1rem; }
-  textarea { width:100%; min-height:12em; background:var(--card); color:var(--fg); border:1px solid #333; border-radius:6px; padding:.5em; font:inherit; }
-  details { text-align:left; margin-top:1em; } input { width:100%; }
+  html, body { height:100%; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--fg); -webkit-font-smoothing:antialiased; }
+  button { font:inherit; color:inherit; border:0; cursor:pointer; background:none; }
+  button:disabled { opacity:.35; cursor:default; }
+  button:focus-visible, summary:focus-visible { outline:2px solid var(--ok); outline-offset:2px; }
+  .num { font-variant-numeric:tabular-nums; }
+
+  /* ---------- Viewer ---------- */
+  #viewer { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px 16px; text-align:center; overflow:hidden; }
+  #fill { position:absolute; left:0; right:0; bottom:0; height:100%; background:var(--ok); opacity:.22; transition:height 1s linear, background-color .6s; z-index:-1; }
+  #viewer.warn #fill { background:var(--warn); }
+  #viewer.ready #fill { opacity:.12; }
+  #v-title { font-size:clamp(1.1rem,3.5vw,2.2rem); font-weight:600; max-width:22ch; margin:0 0 .4em; line-height:1.25; }
+  #v-clock { font-size:clamp(5rem,24vw,16rem); font-weight:700; line-height:1; letter-spacing:-.03em; }
+  #v-status { color:var(--mute); font-size:clamp(.95rem,2.5vw,1.3rem); margin-top:.6em; min-height:1.4em; }
+  #v-next { position:absolute; bottom:max(20px,env(safe-area-inset-bottom)); left:16px; right:16px; color:var(--mute); font-size:clamp(.9rem,2.2vw,1.2rem); }
+  #viewer.warn #v-clock { color:var(--warn); }
+  #viewer.over #v-clock { color:#fff; }
+  #viewer.over { animation:flash 1s steps(1) infinite; }
+  @keyframes flash { 50% { background:var(--over); } }
+  @media (prefers-reduced-motion: reduce) {
+    #fill { transition:none; }
+    #viewer.over { animation:none; background:var(--over); }
+  }
+
+  /* ---------- Master ---------- */
+  #master { display:none; max-width:760px; margin:0 auto; padding:16px 16px 48px; }
+  body.is-master #viewer { display:none; }
+  body.is-master #master { display:block; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:4px 0 16px; }
+  header h1 { font-size:1.05rem; font-weight:600; margin:0; }
+  .pill { display:inline-flex; align-items:center; gap:6px; font-size:.8rem; color:var(--mute); background:var(--surface); border:1px solid var(--line); border-radius:99px; padding:4px 10px; }
+  .pill::before { content:""; width:8px; height:8px; border-radius:50%; background:var(--over); }
+  .pill.on::before { background:var(--ok); }
+
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:20px; }
+  #now { text-align:center; }
+  #m-label { font-size:.75rem; letter-spacing:.08em; text-transform:uppercase; color:var(--mute); }
+  #m-title { font-size:1.2rem; font-weight:600; margin:6px 0 4px; min-height:1.5em; }
+  #m-clock { font-size:clamp(3.5rem,14vw,5.5rem); font-weight:700; line-height:1.05; letter-spacing:-.02em; }
+  #m-clock.warn { color:var(--warn); } #m-clock.over { color:var(--over); }
+  .bar { height:6px; background:var(--surface-2); border-radius:99px; overflow:hidden; margin:14px 0 18px; }
+  #m-bar { height:100%; width:100%; background:var(--ok); transition:width 1s linear; }
+  #m-bar.warn { background:var(--warn); } #m-bar.over { background:var(--over); }
+  .actions { display:grid; grid-template-columns:2fr 1fr; gap:10px; }
+  .btn { padding:14px 16px; border-radius:10px; font-weight:600; background:var(--surface-2); border:1px solid var(--line); }
+  .btn:not(:disabled):hover { background:var(--line); }
+  .btn.primary { background:var(--ok); color:#06210f; border-color:transparent; font-size:1.1rem; }
+  .btn.primary:not(:disabled):hover { filter:brightness(1.08); background:var(--ok); }
+  .btn.primary.pause { background:var(--warn); color:#2a1c00; }
+
+  h2 { font-size:.8rem; letter-spacing:.08em; text-transform:uppercase; color:var(--mute); font-weight:600; margin:28px 4px 10px; }
+  #list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px; }
+  #list li { display:flex; align-items:center; gap:12px; padding:10px 12px; background:var(--surface); border:1px solid var(--line); border-radius:10px; }
+  #list li.cur { border-color:var(--ok); box-shadow:inset 3px 0 0 var(--ok); }
+  #list li.done { opacity:.45; }
+  .idx { width:1.6em; text-align:center; color:var(--mute); font-size:.85rem; flex:none; }
+  li.done .idx { color:var(--ok); }
+  .name { flex:1; min-width:0; text-align:left; padding:4px 0; line-height:1.3; }
+  .name:hover { text-decoration:underline; text-underline-offset:3px; }
+  .stepper { display:flex; align-items:center; background:var(--surface-2); border-radius:8px; flex:none; }
+  .stepper button { width:36px; height:36px; font-size:1.2rem; border-radius:8px; }
+  .stepper button:not(:disabled):hover { background:var(--line); }
+  .stepper span { min-width:3.2em; text-align:center; font-weight:600; }
+
+  details { margin-top:12px; }
+  summary { cursor:pointer; color:var(--mute); padding:10px 4px; font-weight:500; }
+  details .card { margin-top:4px; }
+  details p { margin:0 0 10px; color:var(--mute); font-size:.9rem; }
+  textarea, input[type=text] { width:100%; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:10px; font:inherit; font-size:.95rem; }
+  textarea { min-height:14em; resize:vertical; margin-bottom:10px; }
+  .row { display:flex; gap:8px; }
+  .row input { flex:1; min-width:0; }
+  @media (max-width:480px) { .card { padding:16px; } .actions { grid-template-columns:1fr; } }
 </style>
 </head>
 <body>
-<div id="title">In attesa del master…</div>
-<div id="clock">--:--</div>
-<div id="status"></div>
-<div id="next"></div>
 
-<div id="master">
-  <div>
-    <button id="start" class="primary">▶ Avvia</button>
-    <button id="pause">⏸ Pausa</button>
-    <button id="stop">⏹ Termina parte</button>
-  </div>
+<div id="viewer" class="ready">
+  <div id="fill"></div>
+  <h1 id="v-title">In attesa del master…</h1>
+  <div id="v-clock" class="num">--:--</div>
+  <div id="v-status"></div>
+  <div id="v-next"></div>
+</div>
+
+<main id="master">
+  <header>
+    <h1>Timer Rostiglia · Master</h1>
+    <span id="conn" class="pill">Offline</span>
+  </header>
+
+  <section id="now" class="card">
+    <div id="m-label">Parte attuale</div>
+    <div id="m-title"></div>
+    <div id="m-clock" class="num">--:--</div>
+    <div class="bar"><div id="m-bar"></div></div>
+    <div class="actions">
+      <button id="main" class="btn primary">Avvia</button>
+      <button id="stop" class="btn">Termina parte</button>
+    </div>
+  </section>
+
+  <h2>Programma</h2>
   <ol id="list"></ol>
-  <details>
-    <summary>Modifica programma</summary>
-    <p>Una parte per riga: <code>Titolo | minuti</code></p>
-    <textarea id="program"></textarea>
-    <button id="save">Salva programma</button>
-  </details>
+
   <details>
     <summary>Link per chi consulta</summary>
-    <input id="share" readonly onclick="this.select()">
+    <div class="card row">
+      <input id="share" type="text" readonly>
+      <button id="copy" class="btn">Copia</button>
+    </div>
   </details>
-</div>
+  <details>
+    <summary>Modifica programma</summary>
+    <div class="card">
+      <p>Una parte per riga: <code>Titolo | minuti</code>. Salvando si riparte dalla prima parte.</p>
+      <textarea id="program" spellcheck="false"></textarea>
+      <button id="save" class="btn">Salva programma</button>
+    </div>
+  </details>
+</main>
 
 <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
 <script>
@@ -75,33 +162,62 @@ const fmt = ms => {
   const s = Math.round(Math.abs(ms) / 1000);
   return (ms < 0 ? '+' : '') + String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
 };
+const STATUS = { ready: 'In attesa di avvio', running: '', paused: 'In pausa', done: 'Programma concluso' };
 
 // Shared state shape: { parts:[{t,m}], i, phase:'ready'|'running'|'paused'|'done', remaining }
 let state = null, receivedAt = 0;
 
+// Derived view of the current part, shared by viewer and master.
+function view() {
+  const p = state.parts[state.i];
+  const total = p ? p.m * 60000 : 0;
+  let rem = state.phase === 'ready' ? total : state.remaining;
+  if (state.phase === 'running') rem -= Date.now() - receivedAt;
+  const level = !p || state.phase === 'ready' ? '' : rem < 0 ? 'over' : rem <= 60000 ? 'warn' : '';
+  const pct = !p ? 0 : total ? Math.max(0, Math.min(100, rem / total * 100)) : 0;
+  return { p, nxt: state.parts[state.i + 1], rem, level, pct };
+}
+
 function render() {
   if (!state) return;
-  const p = state.parts[state.i], nxt = state.parts[state.i + 1];
-  let rem = state.remaining;
-  if (state.phase === 'running') rem -= Date.now() - receivedAt;
-  $('title').textContent = p ? `${state.i + 1}. ${p.t}` : 'Programma concluso';
-  $('clock').textContent = p ? fmt(state.phase === 'ready' ? p.m * 60000 : rem) : '--:--';
-  $('clock').className = state.phase === 'ready' ? '' : rem < 0 ? 'over' : rem <= 60000 ? 'warn' : '';
-  $('status').textContent = { ready: 'Pronto — in attesa di avvio', running: 'In corso', paused: 'In pausa', done: '' }[state.phase];
-  $('next').textContent = nxt ? `Poi: ${nxt.t} (${nxt.m} min)` : '';
+  const v = view();
+  if (IS_MASTER) {
+    $('m-title').textContent = v.p ? `${state.i + 1}. ${v.p.t}` : 'Programma concluso';
+    $('m-label').textContent = STATUS[state.phase] || 'In corso';
+    $('m-clock').textContent = v.p ? fmt(v.rem) : '--:--';
+    $('m-clock').className = 'num ' + v.level;
+    $('m-bar').className = v.level;
+    $('m-bar').style.width = v.pct + '%';
+    return;
+  }
+  $('viewer').className = (state.phase === 'ready' ? 'ready ' : '') + v.level;
+  $('fill').style.height = v.pct + '%';
+  $('v-title').textContent = v.p ? v.p.t : 'Programma concluso';
+  $('v-clock').textContent = v.p ? fmt(v.rem) : '--:--';
+  $('v-status').textContent = v.level === 'over' ? 'Tempo scaduto' : STATUS[state.phase];
+  $('v-next').textContent = v.nxt ? `Poi: ${v.nxt.t} · ${v.nxt.m} min` : '';
 }
 
 const client = mqtt.connect('wss://broker.hivemq.com:8884/mqtt', { reconnectPeriod: 2000 });
 client.on('connect', () => client.subscribe(TOPIC));
-client.on('offline', () => $('status').textContent = 'Connessione persa, riconnessione…');
-if (!IS_MASTER) client.on('message', (_, msg) => {
-  try { state = JSON.parse(msg); receivedAt = Date.now(); render(); } catch {}
-});
+if (!IS_MASTER) {
+  client.on('offline', () => $('v-status').textContent = 'Connessione persa, riconnessione…');
+  client.on('message', (_, msg) => {
+    try { state = JSON.parse(msg); receivedAt = Date.now(); render(); } catch {}
+  });
+}
 setInterval(render, 250);
 
 if (IS_MASTER) {
-  $('master').style.display = 'block';
+  document.body.classList.add('is-master');
   $('share').value = location.origin + location.pathname + location.search;
+  $('copy').onclick = () => navigator.clipboard?.writeText($('share').value).then(() => {
+    $('copy').textContent = 'Copiato'; setTimeout(() => $('copy').textContent = 'Copia', 1500);
+  });
+  const setConn = on => { $('conn').textContent = on ? 'Collegato' : 'Offline'; $('conn').classList.toggle('on', on); };
+  client.on('offline', () => setConn(false));
+  client.on('close', () => setConn(false));
+
   let endAt = 0;
   const parse = txt => txt.split('\n').map(l => l.split('|')).filter(a => a.length > 1)
     .map(a => ({ t: a.slice(0, -1).join('|').trim(), m: +a.at(-1) || 0 }));
@@ -121,18 +237,15 @@ if (IS_MASTER) {
     if (state.phase === 'running') endAt = Date.now() + state.remaining;
     render(); if (!tick) renderMaster(); // ponytail: skip list rebuild on ticks so clicks don't get eaten
   };
-  client.on('connect', () => publish());
+  client.on('connect', () => { setConn(true); publish(); });
   renderMaster(); render();
   setInterval(() => state.phase === 'running' && publish(true), 1000);
 
-  $('start').onclick = () => {
-    if (state.phase === 'ready') state.remaining = state.parts[state.i].m * 60000;
-    if (state.phase !== 'ready' && state.phase !== 'paused') return;
-    endAt = Date.now() + state.remaining; state.phase = 'running'; publish();
-  };
-  $('pause').onclick = () => {
-    if (state.phase !== 'running') return;
-    state.remaining = live(); state.phase = 'paused'; publish();
+  $('main').onclick = () => {
+    if (state.phase === 'running') { state.remaining = live(); state.phase = 'paused'; }
+    else if (state.phase === 'ready') { state.remaining = state.parts[state.i].m * 60000; state.phase = 'running'; endAt = Date.now() + state.remaining; }
+    else if (state.phase === 'paused') { state.phase = 'running'; endAt = Date.now() + state.remaining; }
+    publish();
   };
   $('stop').onclick = () => {
     if (state.i >= state.parts.length) return;
@@ -141,18 +254,35 @@ if (IS_MASTER) {
   $('save').onclick = () => {
     state = { parts: parse($('program').value), i: 0, phase: 'ready', remaining: 0 }; publish();
   };
-  // Clicking a part jumps to it (ready, not started). ± only allowed before start.
-  window.adj = (k, d) => { state.parts[k].m = Math.max(0, state.parts[k].m + d); publish(); };
-  window.go = k => { state.i = k; state.phase = 'ready'; publish(); };
+  // Clicking a part jumps to it (ready, not started). ± only before that part starts.
+  $('list').onclick = e => {
+    const b = e.target.closest('button[data-k]');
+    if (!b) return;
+    const k = +b.dataset.k;
+    if (b.dataset.d) state.parts[k].m = Math.max(0, state.parts[k].m + +b.dataset.d);
+    else { state.i = k; state.phase = 'ready'; }
+    publish();
+  };
 
   function renderMaster() {
-    $('start').textContent = state.phase === 'paused' ? '▶ Riprendi' : '▶ Avvia';
+    const ph = state.phase;
+    $('main').textContent = ph === 'running' ? 'Pausa' : ph === 'paused' ? 'Riprendi' : 'Avvia';
+    $('main').classList.toggle('pause', ph === 'running');
+    $('main').disabled = ph === 'done';
+    $('stop').textContent = ph === 'ready' ? 'Salta parte' : 'Termina parte';
+    $('stop').disabled = ph === 'done';
+    const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
     $('list').innerHTML = state.parts.map((p, k) => {
-      const editable = k > state.i || (k === state.i && state.phase === 'ready');
+      const locked = k < state.i || (k === state.i && ph !== 'ready');
       const cls = k === state.i ? 'cur' : k < state.i ? 'done' : '';
-      const esc = p.t.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
-      return `<li class="${cls}"><span onclick="go(${k})" style="cursor:pointer">${esc}</span>
-        ${editable ? `<button onclick="adj(${k},-1)">−</button>` : ''}<b>${p.m}′</b>${editable ? `<button onclick="adj(${k},1)">+</button>` : ''}</li>`;
+      return `<li class="${cls}">
+        <span class="idx">${k < state.i ? '✓' : k + 1}</span>
+        <button class="name" data-k="${k}" title="Vai a questa parte">${esc(p.t)}</button>
+        <span class="stepper">
+          <button data-k="${k}" data-d="-1" aria-label="Togli un minuto" ${locked ? 'disabled' : ''}>−</button>
+          <span class="num">${p.m} min</span>
+          <button data-k="${k}" data-d="1" aria-label="Aggiungi un minuto" ${locked ? 'disabled' : ''}>+</button>
+        </span></li>`;
     }).join('');
   }
 }
