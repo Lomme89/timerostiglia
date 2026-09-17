@@ -219,6 +219,13 @@ if (!IS_MASTER) {
 }
 setInterval(render, 250);
 
+// Keep the screen on. The lock drops when the page is hidden, so re-request on return;
+// also on first tap for browsers that want a user gesture.
+const keepAwake = () => document.visibilityState === 'visible' && navigator.wakeLock?.request('screen').catch(() => {});
+keepAwake();
+document.addEventListener('visibilitychange', keepAwake);
+addEventListener('pointerdown', keepAwake, { once: true });
+
 if (IS_MASTER) {
   document.body.classList.add('is-master');
   $('share').value = location.origin + location.pathname + location.search;
